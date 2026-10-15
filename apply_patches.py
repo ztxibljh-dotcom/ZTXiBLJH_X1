@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 # 在已 clone 的上游源码目录里打补丁（cwd 必须是源码根）。
-import io, sys
+import io, sys, re
 
 def load(p):
-    with io.open(p, encoding='utf-8') as f:
-        return f.read()
+    with io.open(p, encoding='utf-8', newline='') as f:
+        s = f.read()
+    return s.replace('\r\n', '\n').replace('\r', '\n')
 
 def save(p, s):
-    with io.open(p, 'w', encoding='utf-8') as f:
+    with io.open(p, 'w', encoding='utf-8', newline='\n') as f:
         f.write(s)
 
 def sub_once(s, anchor, repl, what):
@@ -16,15 +17,20 @@ def sub_once(s, anchor, repl, what):
     return s.replace(anchor, repl)
 
 # ---------- Application.mk ----------
-save('Application.mk', 'APP_STL := c++_static\nAPP_CPPFLAGS := -frtti -fexceptions\nAPP_ABI := arm64-v8a\nAPP_PLATFORM := android-25\n')
+save('Application.mk',
+     'APP_STL := c++_static\n'
+     'APP_CPPFLAGS := -frtti -fexceptions\n'
+     'APP_ABI := arm64-v8a\n'
+     'APP_PLATFORM := android-25\n')
 print("[ok] Application.mk")
 
 # ---------- log.h: 打开 MY_LOG ----------
 h = load('log.h')
-old = "#define MY_LOG(fmt, ...)\n#define MY_METHOD(fmt, ...)"
-new = ("#define MY_LOG(fmt, ...) __android_log_print(ANDROID_LOG_INFO , \"il2cpp\", \"[%zx]\" fmt \"\\n\", (size_t)pthread_self(), ##__VA_ARGS__)\n"
-       "#define MY_METHOD(fmt, ...)")
-h = sub_once(h, old, new, "log.h MY_LOG")
+new = ('#define MY_LOG(fmt, ...) __android_log_print(ANDROID_LOG_INFO , '
+       '"il2cpp", "[%zx]" fmt "\\n", (size_t)pthread_self(), ##__VA_ARGS__)\n')
+h, n = re.subn(r'#define MY_LOG\(fmt, \.\.\.\)[ \t]*\n', new, h, count=1)
+if n != 1:
+    sys.exit("log.h MY_LOG anchor not found (%d)" % n)
 save('log.h', h)
 print("[ok] log.h")
 
@@ -58,11 +64,7 @@ wrapper = ("\n__attribute__ ((visibility (\"default\")))\n"
 b = sub_once(b, anchor, anchor + wrapper, "useDataDir wrapper")
 print("[ok] useDataDir wrapper")
 
-save('bootstrap.cpp', b)
-
 # 3) 新增 my_fseeko / my_ftello，并整体替换 init_hook()
-import re
-
 extra = "\n".join([
  'typedef int (*FseekoType)(FILE *stream, off64_t offset, int whence);',
  'static int my_fseeko(FILE *stream, off64_t offset, int whence) {',
