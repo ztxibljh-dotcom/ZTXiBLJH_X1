@@ -1,0 +1,36 @@
+name: Build libbootstrap
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone upstream source
+        run: git clone --depth 1 https://github.com/noodle1983/UnityAndroidIl2cppPatchDemo-libboostrap.git src
+
+      - name: Setup NDK r26b
+        uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r26b
+
+      - name: Apply patches
+        run: cd src && python3 "$GITHUB_WORKSPACE/apply_patches.py"
+
+      - name: Build
+        run: |
+          cd src
+          "${{ steps.ndk.outputs.ndk-path }}/ndk-build" -j"$(nproc)" \
+            NDK_PROJECT_PATH=. \
+            APP_BUILD_SCRIPT=Android.mk \
+            NDK_APPLICATION_MK=Application.mk \
+            APP_ABI=arm64-v8a \
+            APP_LDFLAGS="-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libbootstrap-arm64
+          path: src/libs/arm64-v8a/libbootstrap.so
